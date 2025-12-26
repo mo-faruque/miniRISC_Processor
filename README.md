@@ -588,6 +588,8 @@ Sequential elements: 33% of synthesis area
 
 > **Design:** miniRISC | **Platform:** sky130hd | **Samples:** 20 | **Algorithm:** hyperopt
 
+The actual best run is **`abf84b1b`** with optimization score **379.80** (lower is better).
+
 ### Best Parameters Found
 
 | Parameter | Default | AutoTuner | Description |
