@@ -97,18 +97,14 @@ gtkwave tb/tb_functional_verify.vcd
 
 ## 3D GDS Visualization
 
-https://github.com/user-attachments/assets/3D_final_gds.mp4
-
-<video src="docs/images/3D_final_gds.mp4" width="600" controls>
-  Your browser does not support the video tag.
-</video>
-
-> **Note:** If video doesn't play, download [3D_final_gds.mp4](docs/images/3D_final_gds.mp4) and view locally, or use [KLayout](https://klayout.de) or [GDS3D](https://github.com/trilomix/GDS3D) for interactive 3D visualization.
+https://github.com/mo-faruque/miniRISC_Processor/blob/main/docs/images/3D_final_gds.mp4
 
 The 3D view shows the physical layer stackup of the fabricated chip:
 - **Bottom layers:** Standard cells (logic gates, flip-flops)
 - **Metal layers (met1-met5):** Interconnect routing in alternating horizontal/vertical directions
 - **Top layers:** Power distribution network (VDD/VSS rails)
+
+> View with [KLayout](https://klayout.de) or [GDS3D](https://github.com/trilomix/GDS3D) for interactive 3D exploration.
 
 ---
 
@@ -164,11 +160,37 @@ miniRISC_Processor/
 
 ## Prerequisites
 
+### 1. Install Docker
+Ensure Docker is installed and running on your system.
+
+### 2. Pull the ORFS Docker Image
 ```bash
 docker pull openroad/orfs:latest
+```
 
-# Build AutoTuner image (one-time, ~5 min)
-docker build -t orfs-autotuner - < Dockerfile.autotuner-lite
+### 3. (Optional) Build AutoTuner Image
+If you plan to use AutoTuner for PPA optimization:
+```bash
+docker build -t orfs-autotuner -f Dockerfile.autotuner-lite .
+```
+
+### Which Container to Use?
+| Container | Image | Use Case |
+|-----------|-------|----------|
+| **ORFS** | `openroad/orfs:latest` | RTL-to-GDS flow (`./run_flow`) |
+| **AutoTuner** | `orfs-autotuner` | Parameter optimization (`./run_autotuner`) |
+
+### 4. Clone and Run
+```bash
+git clone https://github.com/mo-faruque/miniRISC_Processor.git
+cd miniRISC_Processor
+
+# Run the full RTL-to-GDS flow
+./run_flow
+
+# Or run individual stages
+./run_flow synth    # Synthesis only
+./run_flow gui      # Open OpenROAD GUI
 ```
 
 ## Run Full RTL-to-GDS Flow

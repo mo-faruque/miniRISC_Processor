@@ -1,0 +1,12 @@
+# Lightweight ORFS image with AutoTuner (no extra torch/numpy)
+# Build: docker build -t orfs-autotuner-lite - < Dockerfile.autotuner-lite
+# Usage: ORFS_IMAGE=orfs-autotuner-lite ./run_autotuner
+
+FROM openroad/orfs:latest
+
+# Install AutoTuner dependencies via installer.sh only
+RUN cd /OpenROAD-flow-scripts && \
+    ./tools/AutoTuner/installer.sh && \
+    pip cache purge || true
+
+WORKDIR /OpenROAD-flow-scripts
