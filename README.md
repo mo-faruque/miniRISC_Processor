@@ -97,13 +97,20 @@ gtkwave tb/tb_functional_verify.vcd
 
 ## 3D GDS Visualization
 
-
+<table>
+<tr>
+<td>
 
 https://github.com/user-attachments/assets/5be2eb06-1b44-4c6a-8971-35cab54ecc1a
 
-
-
-<img src="docs/images/3d_gds.png" width="700"/>
+</td>
+<td><img src="docs/images/3d_gds.png" width="400"/></td>
+</tr>
+<tr>
+<td align="center"><b>3D GDS Video</b></td>
+<td align="center"><b>3D GDS Screenshot</b></td>
+</tr>
+</table>
 
 The 3D view shows the physical layer stackup of the fabricated chip:
 - **Bottom layers:** Standard cells (logic gates, flip-flops)
