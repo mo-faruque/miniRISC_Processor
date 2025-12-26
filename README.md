@@ -97,7 +97,7 @@ gtkwave tb/tb_functional_verify.vcd
 
 ## 3D GDS Visualization
 
-https://github.com/mo-faruque/miniRISC_Processor/blob/main/docs/images/3D_final_gds.mp4
+<video src="https://github.com/mo-faruque/miniRISC_Processor/raw/main/docs/images/3D_final_gds.mp4" controls width="700"></video>
 
 The 3D view shows the physical layer stackup of the fabricated chip:
 - **Bottom layers:** Standard cells (logic gates, flip-flops)
