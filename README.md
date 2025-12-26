@@ -352,10 +352,11 @@ Shows all design elements: colored rectangles are standard cells, lines are meta
 - **Uniform distribution:** Good placement quality
 - **Clustering:** Related logic grouped together
 
-### Routing Congestion Heatmap
-- **Blue/Green:** Low congestion (good)
+### Placement Congestion Heatmap
+Estimates routing difficulty based on cell placement density:
+- **Green:** Low congestion (easy to route)
 - **Yellow:** Moderate congestion
-- **Orange/Red:** High congestion (routing issues)
+- **Orange/Red:** High congestion (potential routing issues)
 
 ### IR Drop Heatmap
 Shows voltage drop across power network:
@@ -403,7 +404,7 @@ Shows voltage drop across power network:
 </tr>
 <tr>
 <td align="center"><b>Placement</b></td>
-<td align="center"><b>Routing Congestion</b></td>
+<td align="center"><b>Placement Congestion</b></td>
 </tr>
 <tr>
 <td><img src="docs/images/final_placement.png" width="400"/></td>
