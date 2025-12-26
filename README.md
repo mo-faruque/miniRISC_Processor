@@ -103,6 +103,8 @@ https://github.com/user-attachments/assets/5be2eb06-1b44-4c6a-8971-35cab54ecc1a
 
 
 
+<img src="docs/images/3d_gds.png" width="700"/>
+
 The 3D view shows the physical layer stackup of the fabricated chip:
 - **Bottom layers:** Standard cells (logic gates, flip-flops)
 - **Metal layers (met1-met5):** Interconnect routing in alternating horizontal/vertical directions
