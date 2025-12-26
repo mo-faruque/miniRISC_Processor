@@ -6,9 +6,6 @@ OpenROAD-flow-scripts/
 
 # Docker files (build locally)
 Dockerfile.autotuner
-InstructionsForAutoTuner.md
-flowvariables.md
-FlowVariables.md
 
 # Simulation outputs (in tb/ folder - kept for reference)
 
