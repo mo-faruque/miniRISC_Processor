@@ -603,20 +603,27 @@ Sequential elements: 33% of synthesis area
 | Fmax | 263 MHz |
 | Effective Clock Period | 3.80 ns |
 | Die Area | 15,081 µm² |
+| Total Power | 1.62 mW |
 | Optimization Metric | 379.80 |
 
 ---
 
 ## Comparison: Default vs AutoTuner
 
-| Metric | Default | AutoTuner | Change |
-|--------|---------|-----------|--------|
+| Metric | Default | AutoTuner (Speed) | Change |
+|--------|---------|-------------------|--------|
 | Fmax | 256.21 MHz | 263 MHz | **+2.7%** |
 | Clock Period | 3.90 ns | 3.80 ns | **-2.6%** |
 | Die Area | 12,679 µm² | 15,081 µm² | +19% |
+| Total Power | **1.31 mW** | 1.62 mW | +24% |
 | Core Utilization | 63.96% | 52% | -12% |
 
-**Conclusion:** AutoTuner achieved 2.7% higher frequency at the cost of 19% larger die area (speed-optimized mode). For area-constrained designs, use `--eval ppa-improv` mode.
+**Power Analysis:**
+- **Default flow has better power efficiency** (1.31 mW vs 1.62 mW)
+- AutoTuner's speed optimization increases switching activity due to tighter timing
+- For power-constrained designs, use default flow or `--eval ppa-improv` mode
+
+**Conclusion:** AutoTuner achieved 2.7% higher frequency but consumed 24% more power and 19% larger die area. The default flow provides the best power-performance balance for this design.
 
 ---
 
