@@ -1,0 +1,2 @@
+metric,effective_clk_period,num_drc,die_area,done,training_iteration,trial_id,date,timestamp,time_this_iter_s,time_total_s,pid,hostname,node_ip,time_since_restore,iterations_since_restore
+405.33200000000005,4.05332,0,18132.3,True,1,ec9321ac,2025-12-26_12-44-24,1766753064,135.28423953056335,135.28423953056335,68715,hellkitty,172.24.53.187,135.28423953056335,1

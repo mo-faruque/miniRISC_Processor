@@ -1,0 +1,136 @@
+#!/usr/bin/env bash
+
+set -e
+
+#
+# AutoTuner script - runs ORFS AutoTuner
+#
+# Usage: ./run_autotuner [options]
+#
+# Environment:
+#   ORFS_IMAGE  Docker image (default: orfs-autotuner)
+#
+# Options:
+#   -s, --samples N      Number of tuning samples (default: 10)
+#   -j, --jobs N         Parallel jobs (default: 2)
+#   -a, --algorithm ALG  Search algorithm (default: ax)
+#                        Options: ax, hyperopt, optuna, pbt, random
+#   -d, --design NAME    Design name (default: miniRISC)
+#   -p, --platform PLAT  Platform (default: sky130hd)
+#   -c, --config PATH    Config file path (default: designs/sky130hd/miniRISC/autotuner.json)
+#   -e, --experiment EXP Experiment name (default: miniRISC_tune)
+#   --eval MODE          Evaluation mode: default or ppa-improv (default: default)
+#   --reference PATH     Reference metrics JSON for ppa-improv mode
+#                        (e.g., logs/sky130hd/miniRISC/base/6_report.json)
+#   --seed N             Random seed (0 = no seed, default: 0)
+#   --resume             Resume previous experiment run
+#   -h, --help           Show this help
+#
+# Examples:
+#   ./run_autotuner                           # Default settings
+#   ./run_autotuner -s 20 -j 4                # 20 samples, 4 jobs
+#   ./run_autotuner -a hyperopt               # Use HyperOpt algorithm
+#   ./run_autotuner -d mydesign -p asap7      # Different design/platform
+#   ./run_autotuner --eval ppa-improv --reference logs/sky130hd/miniRISC/base/6_report.json
+#
+
+PROJECT_ROOT="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+ORFS_IMAGE=${ORFS_IMAGE:-orfs-autotuner}
+
+# Defaults
+SAMPLES=10
+JOBS=2
+ALGORITHM="ax"
+DESIGN="miniRISC"
+PLATFORM="sky130hd"
+CONFIG="designs/sky130hd/miniRISC/autotuner.json"
+EXPERIMENT="miniRISC_tune"
+EVAL_MODE="default"
+REFERENCE=""
+SEED=0
+RESUME=""
+
+# Parse arguments
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        -s|--samples)    SAMPLES="$2"; shift 2 ;;
+        -j|--jobs)       JOBS="$2"; shift 2 ;;
+        -a|--algorithm)  ALGORITHM="$2"; shift 2 ;;
+        -d|--design)     DESIGN="$2"; shift 2 ;;
+        -p|--platform)   PLATFORM="$2"; shift 2 ;;
+        -c|--config)     CONFIG="$2"; shift 2 ;;
+        -e|--experiment) EXPERIMENT="$2"; shift 2 ;;
+        --eval)          EVAL_MODE="$2"; shift 2 ;;
+        --reference)     REFERENCE="$2"; shift 2 ;;
+        --seed)          SEED="$2"; shift 2 ;;
+        --resume)        RESUME="--resume"; shift ;;
+        -h|--help)
+            head -36 "$0" | tail -31
+            exit 0
+            ;;
+        *)
+            echo "Unknown option: $1"
+            exit 1
+            ;;
+    esac
+done
+
+# Validate eval mode
+if [[ "$EVAL_MODE" != "default" && "$EVAL_MODE" != "ppa-improv" ]]; then
+    echo "Error: --eval must be 'default' or 'ppa-improv'"
+    exit 1
+fi
+
+# Validate reference requirement
+if [[ "$EVAL_MODE" == "ppa-improv" && -z "$REFERENCE" ]]; then
+    echo "Error: --reference is required when using --eval ppa-improv"
+    exit 1
+fi
+
+# Build reference argument if provided
+REFERENCE_ARG=""
+if [[ -n "$REFERENCE" ]]; then
+    REFERENCE_ARG="--reference /OpenROAD-flow-scripts/flow/$REFERENCE"
+fi
+
+echo "============================================"
+echo "AutoTuner Configuration:"
+echo "  Design:     $DESIGN"
+echo "  Platform:   $PLATFORM"
+echo "  Algorithm:  $ALGORITHM"
+echo "  Samples:    $SAMPLES"
+echo "  Jobs:       $JOBS"
+echo "  Config:     $CONFIG"
+echo "  Experiment: $EXPERIMENT"
+echo "  Eval Mode:  $EVAL_MODE"
+if [[ -n "$REFERENCE" ]]; then
+echo "  Reference:  $REFERENCE"
+fi
+if [[ -n "$RESUME" ]]; then
+echo "  Resume:     yes"
+fi
+echo "  Seed:       $SEED"
+echo "  Image:      $ORFS_IMAGE"
+echo "============================================"
+
+docker run --rm \
+    --shm-size=16g \
+    -v "$PROJECT_ROOT/designs:/OpenROAD-flow-scripts/flow/designs:Z" \
+    -v "$PROJECT_ROOT/logs:/OpenROAD-flow-scripts/flow/logs:Z" \
+    -v "$PROJECT_ROOT/reports:/OpenROAD-flow-scripts/flow/reports:Z" \
+    -v "$PROJECT_ROOT/results:/OpenROAD-flow-scripts/flow/results:Z" \
+    --network host \
+    ${ORFS_IMAGE} \
+    bash -c "
+        cd /OpenROAD-flow-scripts
+        source ./env.sh
+        source ./tools/AutoTuner/autotuner_env/bin/activate
+
+        python3 -m autotuner.distributed \
+            --design $DESIGN \
+            --platform $PLATFORM \
+            --config /OpenROAD-flow-scripts/flow/$CONFIG \
+            --experiment $EXPERIMENT \
+            --jobs $JOBS \
+            tune --samples $SAMPLES --algorithm $ALGORITHM --eval $EVAL_MODE --seed $SEED $REFERENCE_ARG $RESUME
+    "

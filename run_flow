@@ -1,0 +1,112 @@
+#!/usr/bin/env bash
+
+set -e
+
+#
+# Run ORFS RTL-to-GDS flow
+#
+# Usage: ./run_flow [options] [stage]
+#
+# Environment:
+#   ORFS_IMAGE  Docker image (default: openroad/orfs:latest)
+#
+# Options:
+#   -d, --design NAME    Design config path (default: designs/sky130hd/miniRISC/config.mk)
+#   -h, --help           Show this help
+#
+# Stages:
+#   (none)     Run complete flow
+#   synth      Synthesis only
+#   floorplan  Floorplanning only
+#   place      Placement only
+#   cts        Clock tree synthesis only
+#   route      Routing only
+#   finish     Final GDS generation only
+#   clean      Clean all build artifacts
+#   shell      Open interactive shell
+#   cmd "..."  Run arbitrary command
+#
+# Examples:
+#   ./run_flow                                    # Full flow with default design
+#   ./run_flow synth                              # Synthesis only
+#   ./run_flow -d designs/asap7/aes/config.mk     # Different design
+#   ./run_flow shell                              # Interactive shell
+#
+
+PROJECT_ROOT="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+ORFS_IMAGE=${ORFS_IMAGE:-openroad/orfs:latest}
+DESIGN_CONFIG="designs/sky130hd/miniRISC/config.mk"
+
+# Parse options
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        -d|--design)
+            DESIGN_CONFIG="$2"
+            shift 2
+            ;;
+        -h|--help)
+            head -34 "$0" | tail -29
+            exit 0
+            ;;
+        -*)
+            echo "Unknown option: $1"
+            exit 1
+            ;;
+        *)
+            break
+            ;;
+    esac
+done
+
+STAGE=${1:-}
+
+echo "============================================"
+echo "ORFS Flow Configuration:"
+echo "  Design:    $DESIGN_CONFIG"
+echo "  Stage:     ${STAGE:-full}"
+echo "  Image:     $ORFS_IMAGE"
+echo "============================================"
+
+# Docker run helper
+docker_run() {
+    local interactive=""
+    if test -t 0; then
+        interactive="-ti"
+    fi
+
+    docker run --rm \
+        --shm-size=4g \
+        -v "$PROJECT_ROOT/designs:/OpenROAD-flow-scripts/flow/designs:Z" \
+        -v "$PROJECT_ROOT/logs:/OpenROAD-flow-scripts/flow/logs:Z" \
+        -v "$PROJECT_ROOT/reports:/OpenROAD-flow-scripts/flow/reports:Z" \
+        -v "$PROJECT_ROOT/results:/OpenROAD-flow-scripts/flow/results:Z" \
+        --network host \
+        $interactive \
+        ${ORFS_IMAGE} \
+        bash -c "cd /OpenROAD-flow-scripts && source ./env.sh && $1"
+}
+
+# Build command based on stage
+case "$STAGE" in
+    "")
+        docker_run "make -C flow DESIGN_CONFIG=$DESIGN_CONFIG"
+        ;;
+    clean)
+        docker_run "make -C flow DESIGN_CONFIG=$DESIGN_CONFIG clean_all"
+        ;;
+    shell)
+        docker_run "bash"
+        ;;
+    cmd)
+        shift
+        docker_run "$*"
+        ;;
+    synth|floorplan|place|cts|route|finish)
+        docker_run "make -C flow DESIGN_CONFIG=$DESIGN_CONFIG $STAGE"
+        ;;
+    *)
+        echo "Unknown stage: $STAGE"
+        echo "Run './run_flow -h' for help"
+        exit 1
+        ;;
+esac

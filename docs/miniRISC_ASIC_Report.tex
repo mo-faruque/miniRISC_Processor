@@ -1,0 +1,810 @@
+\documentclass[11pt,a4paper]{article}
+
+% Packages
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{geometry}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{longtable}
+\usepackage{xcolor}
+\usepackage{hyperref}
+\usepackage{float}
+\usepackage{caption}
+\usepackage{subcaption}
+\usepackage{listings}
+\usepackage{fancyhdr}
+\usepackage{titlesec}
+\usepackage{tocloft}
+
+% Page geometry
+\geometry{margin=1in}
+
+% Colors
+\definecolor{headerblue}{RGB}{0,82,147}
+\definecolor{codegreen}{rgb}{0,0.6,0}
+\definecolor{codegray}{rgb}{0.5,0.5,0.5}
+
+% Hyperref setup
+\hypersetup{
+    colorlinks=true,
+    linkcolor=headerblue,
+    filecolor=magenta,
+    urlcolor=cyan,
+}
+
+% Header/Footer
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{\small miniRISC Processor}
+\fancyhead[R]{\small ASIC Implementation Report}
+\fancyfoot[C]{\thepage}
+
+% Code listing style
+\lstset{
+    basicstyle=\ttfamily\small,
+    keywordstyle=\color{headerblue},
+    commentstyle=\color{codegreen},
+    stringstyle=\color{codegray},
+    breaklines=true,
+    frame=single,
+    captionpos=b
+}
+
+% Title
+\title{
+    \vspace{-1cm}
+    \textbf{\LARGE miniRISC Processor} \\[0.5cm]
+    \large ASIC Implementation Report \\
+    SkyWater 130nm Technology
+}
+\author{OpenROAD Flow Scripts (ORFS)}
+\date{\today}
+
+\begin{document}
+
+\maketitle
+\tableofcontents
+\newpage
+
+%=============================================================================
+\section{Introduction}
+%=============================================================================
+
+This report documents the ASIC implementation of the miniRISC processor using OpenROAD Flow Scripts (ORFS) targeting the SkyWater 130nm high-density (sky130hd) technology node. The design achieves a maximum frequency of 256 MHz with zero timing and DRC violations.
+
+\subsection{Design Overview}
+
+\begin{table}[H]
+\centering
+\caption{Design Summary}
+\begin{tabular}{@{}ll@{}}
+\toprule
+\textbf{Parameter} & \textbf{Value} \\
+\midrule
+Design Name & miniRISC \\
+Technology & SkyWater sky130hd (130nm) \\
+Clock Frequency & 256.21 MHz \\
+Die Area & 12,678.8 $\mu m^2$ \\
+Core Utilization & 63.96\% \\
+Total Power & 1.31 mW \\
+Standard Cells & 1,186 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+%=============================================================================
+\section{Processor Architecture}
+%=============================================================================
+
+The miniRISC is a 32-bit lightweight RISC processor implemented in Verilog HDL. It employs a Harvard architecture with separate memories for instructions and data, controlled by a finite state machine (FSM) for sequential instruction execution.
+
+\subsection{Architectural Features}
+
+The processor's datapath centers around a 32-bit Instruction Register (IR) that holds the current instruction being executed. The IR is divided into fields for the opcode, destination register, source registers, mode selection, and immediate data. A register file provides 32 general-purpose registers (GPR), each 16 bits wide, allowing for flexible data manipulation. Additionally, a Special General Purpose Register (SGPR) captures the high-order 16 bits of multiplication results, enabling 32-bit multiplication output.
+
+The arithmetic and logic unit (ALU) performs all computational operations including addition, subtraction, multiplication, and bitwise logical operations. The processor employs a Harvard architecture with physically separate instruction memory (32-bit wide) and data memory (16-bit wide), allowing simultaneous instruction fetch and data access in different clock cycles.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.8\textwidth]{images/cpu_block.png}
+\caption{miniRISC Processor Block Diagram. The diagram illustrates the Harvard architecture with separate instruction and data memory paths, the central register file, ALU, and the FSM-based control unit that orchestrates instruction execution.}
+\end{figure}
+
+\subsection{Instruction Format}
+
+The processor uses a 32-bit fixed-length instruction format, which simplifies instruction fetch and decode logic. All instructions share a common upper portion containing the opcode and register specifiers, while the lower portion varies based on the addressing mode. Table 2 shows the field allocation within the 32-bit instruction word.
+
+\begin{table}[H]
+\centering
+\caption{32-bit Instruction Format}
+\begin{tabular}{|c|c|c|c|c|}
+\hline
+\textbf{Bits} & 31:27 & 26:22 & 21:17 & 16 \\
+\hline
+\textbf{Field} & OPCODE & RDST & RSRC1 & MODE \\
+\hline
+\textbf{Width} & 5 bits & 5 bits & 5 bits & 1 bit \\
+\hline
+\end{tabular}
+\end{table}
+
+The 5-bit opcode field (bits 31:27) supports up to 32 distinct operations. The destination register (RDST) and first source register (RSRC1) are each specified by 5-bit fields, allowing access to all 32 GPRs. The MODE bit (bit 16) determines whether the instruction uses register-to-register (R-Type) or register-immediate (I-Type) addressing.
+
+In R-Type format (MODE = 0), the second source operand comes from a register specified in bits 15:11, with the remaining bits unused. This format is used for operations between two registers, such as \texttt{ADD R2, R0, R1}.
+
+\begin{verbatim}
+R-Type: [31:27] [26:22] [21:17] [16] [15:11] [10:0]
+         OPCODE   RDST    RSRC1   0    RSRC2   unused
+\end{verbatim}
+
+In I-Type format (MODE = 1), the entire lower 16 bits serve as an immediate value, allowing constants up to 65535 to be encoded directly in the instruction. This format supports operations like \texttt{MOV R0, \#5} or \texttt{ADD R1, R1, \#10}.
+
+\begin{verbatim}
+I-Type: [31:27] [26:22] [21:17] [16] [15:0]
+         OPCODE   RDST    RSRC1   1   IMMEDIATE (16-bit)
+\end{verbatim}
+
+\subsubsection{Opcode Encoding}
+
+Table 3 presents the complete opcode encoding for all 26 instructions. The instruction set is organized into four categories: arithmetic operations for mathematical computations, logical operations for bitwise manipulation, memory operations for data transfer between registers and memory, and control flow operations for program sequencing.
+
+Arithmetic operations (opcodes 00000-00100) include basic mathematical functions. The MOVSGPR instruction transfers the special register contents to a GPR, useful for retrieving the upper 16 bits after multiplication. MOV provides data movement between registers or from immediate values. ADD, SUB, and MUL perform addition, subtraction, and multiplication respectively, with the MUL instruction storing the upper 16 bits of the 32-bit product in SGPR.
+
+Logical operations (opcodes 00101-01011) provide a complete set of bitwise functions including OR, AND, XOR, XNOR, NAND, NOR, and NOT. These operations work on 16-bit operands and support both register and immediate addressing modes.
+
+Memory operations (opcodes 01101-10001) facilitate data transfer between the processor and external memory. STOREREG and STOREDIN write register contents or input bus data to memory, while SENDDOUT and SENDREG read from memory to the output bus or registers.
+
+Control flow operations (opcodes 10010-11011) manage program execution. The unconditional JMP instruction transfers control to an absolute address. Conditional jumps (JC, JNC, JS, JNS, JZ, JNZ, JO, JNO) branch based on the state of condition flags, enabling implementation of loops and conditional logic. The HALT instruction terminates program execution.
+
+\begin{table}[H]
+\centering
+\caption{Complete Opcode Table}
+\begin{tabular}{@{}llll@{}}
+\toprule
+\textbf{Opcode} & \textbf{Binary} & \textbf{Mnemonic} & \textbf{Operation} \\
+\midrule
+\multicolumn{4}{l}{\textit{Arithmetic Operations}} \\
+00000 & 5'b00000 & MOVSGPR & RDST $\leftarrow$ SGPR \\
+00001 & 5'b00001 & MOV & RDST $\leftarrow$ RSRC1 or IMM \\
+00010 & 5'b00010 & ADD & RDST $\leftarrow$ RSRC1 + RSRC2/IMM \\
+00011 & 5'b00011 & SUB & RDST $\leftarrow$ RSRC1 - RSRC2/IMM \\
+00100 & 5'b00100 & MUL & RDST $\leftarrow$ RSRC1 $\times$ RSRC2/IMM \\
+\midrule
+\multicolumn{4}{l}{\textit{Logical Operations}} \\
+00101 & 5'b00101 & OR & RDST $\leftarrow$ RSRC1 | RSRC2/IMM \\
+00110 & 5'b00110 & AND & RDST $\leftarrow$ RSRC1 \& RSRC2/IMM \\
+00111 & 5'b00111 & XOR & RDST $\leftarrow$ RSRC1 $\oplus$ RSRC2/IMM \\
+01000 & 5'b01000 & XNOR & RDST $\leftarrow$ RSRC1 $\odot$ RSRC2/IMM \\
+01001 & 5'b01001 & NAND & RDST $\leftarrow$ $\sim$(RSRC1 \& RSRC2/IMM) \\
+01010 & 5'b01010 & NOR & RDST $\leftarrow$ $\sim$(RSRC1 | RSRC2/IMM) \\
+01011 & 5'b01011 & NOT & RDST $\leftarrow$ $\sim$RSRC1/IMM \\
+\midrule
+\multicolumn{4}{l}{\textit{Memory Operations}} \\
+01101 & 5'b01101 & STOREREG & MEM[IMM] $\leftarrow$ GPR[RSRC1] \\
+01110 & 5'b01110 & STOREDIN & MEM[IMM] $\leftarrow$ DIN \\
+01111 & 5'b01111 & SENDDOUT & DOUT $\leftarrow$ MEM[IMM] \\
+10001 & 5'b10001 & SENDREG & RDST $\leftarrow$ MEM[IMM] \\
+\midrule
+\multicolumn{4}{l}{\textit{Control Flow}} \\
+10010 & 5'b10010 & JMP & PC $\leftarrow$ IMM (unconditional) \\
+10011 & 5'b10011 & JC & Jump if Carry = 1 \\
+10100 & 5'b10100 & JNC & Jump if Carry = 0 \\
+10101 & 5'b10101 & JS & Jump if Sign = 1 \\
+10110 & 5'b10110 & JNS & Jump if Sign = 0 \\
+10111 & 5'b10111 & JZ & Jump if Zero = 1 \\
+11000 & 5'b11000 & JNZ & Jump if Zero = 0 \\
+11001 & 5'b11001 & JO & Jump if Overflow = 1 \\
+11010 & 5'b11010 & JNO & Jump if Overflow = 0 \\
+11011 & 5'b11011 & HALT & Stop execution \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Condition Flags}
+
+The processor maintains four condition flags that are updated by arithmetic operations and used by conditional branch instructions. These flags enable the implementation of comparison operations, loop constructs, and conditional execution paths.
+
+The Carry flag (C) is set when an arithmetic operation produces a result that exceeds 16 bits, indicating unsigned overflow. This occurs when the sum of two unsigned numbers cannot be represented in 16 bits. The Sign flag (S) reflects the most significant bit (bit 15) of the result, indicating whether the result is negative in two's complement representation. The Zero flag (Z) is set when an operation produces a zero result, commonly used for equality comparisons and loop termination conditions. The Overflow flag (V) indicates signed arithmetic overflow, which occurs when the result of an operation on two signed numbers has an incorrect sign bit.
+
+\begin{table}[H]
+\centering
+\caption{Condition Flags}
+\begin{tabular}{@{}lll@{}}
+\toprule
+\textbf{Flag} & \textbf{Condition} & \textbf{Set When} \\
+\midrule
+Carry (C) & Unsigned overflow & Result $>$ 16 bits \\
+Sign (S) & Negative result & Bit 15 of result = 1 \\
+Zero (Z) & Zero result & Result = 0 \\
+Overflow (V) & Signed overflow & Sign bit incorrect \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Instruction Set Summary}
+
+The miniRISC instruction set comprises 26 instructions organized into four functional categories, as summarized in Table 5. This instruction set provides sufficient functionality for general-purpose computing while maintaining simplicity in the decode and execution logic.
+
+\begin{table}[H]
+\centering
+\caption{Instruction Categories}
+\begin{tabular}{@{}lll@{}}
+\toprule
+\textbf{Category} & \textbf{Instructions} & \textbf{Count} \\
+\midrule
+Arithmetic & MOVSGPR, MOV, ADD, SUB, MUL & 5 \\
+Logical & OR, AND, XOR, XNOR, NAND, NOR, NOT & 7 \\
+Memory & STOREREG, STOREDIN, SENDDOUT, SENDREG & 4 \\
+Control & JMP, JC, JNC, JS, JNS, JZ, JNZ, JO, JNO, HALT & 10 \\
+\midrule
+\textbf{Total} & & \textbf{26} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Finite State Machine}
+
+The processor employs a finite state machine (FSM) to control the sequential execution of instructions. Unlike pipelined architectures, this FSM-based approach executes one instruction at a time, simplifying the control logic and eliminating hazards at the cost of throughput. The FSM cycles through six states for each instruction, as illustrated in Figure 2.
+
+Upon system reset, the FSM enters the Idle state, initializing all registers and control signals to their default values. The processor then transitions to the Fetch state, where the instruction at the current program counter (PC) address is loaded into the instruction register (IR). In the Decode and Execute state, the opcode is decoded and the corresponding operation is performed; arithmetic operations update the condition flags, and memory operations initiate data transfers. A Delay state introduces a fixed wait period of several clock cycles, ensuring timing constraints are met for memory operations and providing a consistent instruction execution time. The Next Instruction state updates the program counter, either incrementing it sequentially or loading a jump target address if a branch was taken. Finally, the Sense Halt state checks whether a HALT instruction was executed; if so, the processor remains in this state until reset, otherwise it returns to Fetch for the next instruction.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.7\textwidth]{images/FSM_block.png}
+\caption{FSM State Diagram}
+\end{figure}
+
+\subsection{I/O Ports}
+
+\begin{table}[H]
+\centering
+\caption{I/O Port Specification}
+\begin{tabular}{@{}llll@{}}
+\toprule
+\textbf{Port} & \textbf{Width} & \textbf{Direction} & \textbf{Description} \\
+\midrule
+clk & 1 & Input & System clock \\
+sys\_rst & 1 & Input & Synchronous reset (active high) \\
+din[15:0] & 16 & Input & Data input bus \\
+dout[15:0] & 16 & Output & Data output bus \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+%=============================================================================
+\section{Functional Verification}
+%=============================================================================
+
+The processor functionality was verified using Verilog testbenches with automated checking.
+
+\subsection{Test Program}
+
+The verification program computes $5 \times 6 = 30$ using an iterative loop:
+
+\begin{table}[H]
+\centering
+\caption{Test Program Assembly}
+\begin{tabular}{@{}clll@{}}
+\toprule
+\textbf{Addr} & \textbf{Instruction} & \textbf{Encoding (32-bit)} & \textbf{Description} \\
+\midrule
+0 & MOV R0, \#5 & 00001\_00000\_00000\_1\_0000000000000101 & Load multiplier \\
+1 & MOV R1, \#6 & 00001\_00001\_00000\_1\_0000000000000110 & Load multiplicand \\
+2 & MOV R2, \#0 & 00001\_00010\_00000\_1\_0000000000000000 & Clear accumulator \\
+3 & MOV R3, \#6 & 00001\_00011\_00000\_1\_0000000000000110 & Loop counter \\
+4 & ADD R2, R2, R0 & 00010\_00010\_00010\_0\_00000\_00000000000 & Accumulate \\
+5 & SUB R3, R3, \#1 & 00011\_00011\_00011\_1\_0000000000000001 & Decrement counter \\
+6 & JNZ 4 & 11000\_00000\_00000\_0\_0000000000000100 & Loop if R3 $\neq$ 0 \\
+7 & MOV R4, R2 & 00001\_00100\_00010\_0\_00000\_00000000000 & Copy result \\
+8 & HALT & 11011\_00000\_00000\_0\_0000000000000000 & Stop execution \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Expected Results}
+
+\begin{table}[H]
+\centering
+\caption{Expected Register Values After Execution}
+\begin{tabular}{@{}lll@{}}
+\toprule
+\textbf{Register} & \textbf{Expected Value} & \textbf{Description} \\
+\midrule
+GPR[0] & 5 & Multiplier (unchanged) \\
+GPR[1] & 6 & Multiplicand (unchanged) \\
+GPR[2] & 30 & Result: $5 \times 6 = 30$ \\
+GPR[3] & 0 & Loop counter (decremented to 0) \\
+GPR[4] & 30 & Copy of result \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Simulation Waveform}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.9\textwidth]{functional-verification/waveform_view.png}
+\caption{Simulation Waveform showing instruction execution}
+\end{figure}
+
+\subsection{Verification Results}
+
+\begin{lstlisting}[caption={Testbench Output}]
+===========================================
+miniRISC Synthesizable Design - Test Start
+===========================================
+Reset released at cycle 0
+[Cycle 7] FETCH: PC=0 IR will be=08010005
+[Cycle 14] EXEC: IR=08010005 oper=00001 GPR[0]=5 GPR[2]=0
+...
+HALT detected at cycle 287
+-------------------------------------------
+Final Register Values:
+  GPR[0] = 5 (expected: 5)
+  GPR[1] = 6 (expected: 6)
+  GPR[2] = 30 (expected: 30)
+  GPR[3] = 0 (expected: 0)
+  GPR[4] = 30 (expected: 30)
+-------------------------------------------
+===========================================
+TEST PASSED - All registers correct!
+===========================================
+\end{lstlisting}
+
+\subsection{Testbench Coverage}
+
+\begin{table}[H]
+\centering
+\caption{Verification Testbenches}
+\begin{tabular}{@{}lll@{}}
+\toprule
+\textbf{Testbench} & \textbf{File} & \textbf{Coverage} \\
+\midrule
+Functional Verify & tb\_functional\_verify.v & Full program execution \\
+Arithmetic Unit & tb\_arithmetic\_unit.v & ADD, SUB, MUL operations \\
+Logical Unit & tb\_logical\_unit.v & AND, OR, XOR, NOT operations \\
+Conditional Flags & tb\_conditional\_flags.v & C, S, Z, V flag testing \\
+Memory Interface & tb\_data\_\&\_inst\_mem.v & Load/Store operations \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+%=============================================================================
+\section{ASIC Implementation Flow}
+%=============================================================================
+
+The ASIC implementation uses OpenROAD Flow Scripts (ORFS) with the following stages:
+
+\begin{figure}[H]
+\centering
+\fbox{\parbox{0.9\textwidth}{
+\centering
+\textbf{RTL} $\rightarrow$ \textbf{Synthesis} $\rightarrow$ \textbf{Floorplan} $\rightarrow$ \textbf{Placement} $\rightarrow$ \textbf{CTS} $\rightarrow$ \textbf{Routing} $\rightarrow$ \textbf{Finishing} $\rightarrow$ \textbf{GDSII}
+}}
+\caption{ASIC Design Flow}
+\end{figure}
+
+\subsection{Tools Used}
+
+\begin{table}[H]
+\centering
+\caption{EDA Tool Chain}
+\begin{tabular}{@{}ll@{}}
+\toprule
+\textbf{Tool} & \textbf{Function} \\
+\midrule
+Yosys & RTL Synthesis \\
+OpenROAD & Floorplanning, Placement, CTS, Routing \\
+OpenSTA & Static Timing Analysis \\
+KLayout & GDSII Stream-out, DRC \\
+Magic & DRC, LVS \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Flow Stages}
+
+\subsubsection{1. Synthesis (Yosys)}
+Converts Verilog RTL to gate-level netlist using sky130hd standard cells.
+
+\subsubsection{2. Floorplanning}
+Defines die/core dimensions, places I/O pins, and creates placement rows.
+
+\subsubsection{3. Placement}
+\begin{itemize}
+    \item Global placement: Initial cell positions
+    \item Detailed placement: Legalization to placement sites
+    \item Timing-driven optimization
+\end{itemize}
+
+\subsubsection{4. Clock Tree Synthesis (CTS)}
+Builds balanced clock distribution network with buffers to minimize skew.
+
+\subsubsection{5. Routing}
+\begin{itemize}
+    \item Global routing: Coarse routing paths
+    \item Detailed routing: Exact metal layer connections
+\end{itemize}
+
+\subsubsection{6. Finishing}
+\begin{itemize}
+    \item Fill cell insertion
+    \item Metal fill for density
+    \item Final verification
+\end{itemize}
+
+%=============================================================================
+\section{How to Interpret Layout Images}
+%=============================================================================
+
+This section explains how to read and understand the generated layout visualizations.
+
+\subsection{Final Layout View}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.6\textwidth]{images/final_all.png}
+\caption{Final Layout - All Layers}
+\end{figure}
+
+The final layout view presents all physical design elements in a single image. The colored rectangles distributed across the core area represent standard cells, which include logic gates, flip-flops, and buffers that implement the processor's functionality. The horizontal and vertical lines traversing the design are metal routing layers that connect these cells together. Around the periphery, larger rectangular structures represent I/O pads and pins that interface with external signals. The regular grid pattern visible throughout the design is the power distribution network, consisting of VDD and VSS rails that supply power to all cells.
+
+\subsection{Routing View}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.6\textwidth]{images/final_routing.png}
+\caption{Detailed Routing View}
+\end{figure}
+
+The routing view highlights the interconnections between cells using different colors for each metal layer. The SkyWater 130nm process provides six routing layers. The local interconnect layer (li1) handles connections within individual cells and short-distance routing. The first metal layer (met1), typically shown in blue, runs primarily in the horizontal direction and handles most local signal routing. The second metal layer (met2), shown in pink or red, runs vertically and provides connections between horizontal met1 segments. Higher metal layers (met3 through met5) alternate between horizontal and vertical orientations, with the upper layers primarily used for power distribution and long-distance signal routing due to their lower resistance.
+
+\subsection{Placement View}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.6\textwidth]{images/final_placement.png}
+\caption{Cell Placement View}
+\end{figure}
+
+The placement view shows the physical location of all standard cells within the core area. A high-quality placement exhibits several characteristics: uniform distribution of cells across the available area prevents localized congestion, while related logic blocks are clustered together to minimize wire lengths. Dense regions indicate areas of high logic complexity, typically around critical paths or complex functional units. Empty spaces between cell clusters serve as routing channels, providing room for interconnect wires. The placement algorithm optimizes for timing, routability, and power by iteratively adjusting cell positions to meet design constraints.
+
+\subsection{Routing Congestion Heatmap}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.6\textwidth]{images/final_congestion.png}
+\caption{Routing Congestion Heatmap}
+\end{figure}
+
+The routing congestion heatmap uses color coding to indicate the demand for routing resources across different regions of the chip. Blue and green colors represent low congestion areas where routing resources are abundant and signal routing is straightforward. Yellow indicates moderate congestion, suggesting that routing in these areas requires careful management but remains feasible. Orange and red colors signal high congestion, where the demand for routing tracks approaches or exceeds the available capacity, potentially causing routing failures or requiring detours that increase wire length and delay.
+
+Congestion typically arises from several sources: high-fanout nets that must connect to many destinations create routing hotspots; dense logic regions naturally require more interconnections; the clock tree, which must reach every sequential element, consumes significant routing resources; and the power distribution network reserves tracks on upper metal layers. The miniRISC implementation shows predominantly blue and green coloring, indicating excellent routability with no congestion issues.
+
+\subsection{IR Drop Heatmap}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.6\textwidth]{images/final_ir_drop.png}
+\caption{IR Drop Analysis}
+\end{figure}
+
+The IR drop heatmap visualizes the voltage drop across the power distribution network, which occurs due to the resistance of metal wires carrying supply current to the cells. This analysis is critical for ensuring reliable circuit operation, as excessive voltage drop can cause timing failures and functional errors.
+
+The color scale represents the magnitude of voltage drop from the power supply rails to each location in the design. Blue and green regions experience minimal voltage drop, indicating robust power delivery where cells receive voltage close to the nominal supply level. Yellow and orange regions show moderate drop that remains within acceptable margins. Red areas, if present, indicate locations where the voltage drop is significant and may require design modifications such as additional power straps or decoupling capacitors.
+
+For reliable operation, the voltage drop should remain below 5\% of the supply voltage. With a 1.8V supply (VDD) in the SkyWater 130nm process, this translates to a maximum acceptable drop of approximately 90mV. The miniRISC implementation achieves excellent power integrity with only 0.01\% IR drop, well within acceptable limits.
+
+\subsection{Clock Tree View}
+
+\begin{figure}[H]
+\centering
+\begin{subfigure}[b]{0.45\textwidth}
+\includegraphics[width=\textwidth]{images/cts_core_clock.png}
+\caption{Clock Tree Structure}
+\end{subfigure}
+\hfill
+\begin{subfigure}[b]{0.45\textwidth}
+\includegraphics[width=\textwidth]{images/cts_core_clock_layout.png}
+\caption{Clock Tree Layout}
+\end{subfigure}
+\caption{Clock Tree Synthesis Results}
+\end{figure}
+
+The clock tree visualization shows how the clock signal is distributed from its source to all sequential elements (flip-flops) in the design. The left image displays the logical tree structure, showing the hierarchical arrangement of clock buffers that fan out the clock signal. A well-balanced tree exhibits symmetric branching, ensuring that the clock arrives at all endpoints with minimal variation in arrival time (skew).
+
+The right image shows the physical layout of the clock tree, with clock buffers placed throughout the core and metal routing connecting them. The clock tree synthesis (CTS) tool automatically inserts buffers and determines their placement to achieve the target skew specification. Key metrics to evaluate include the number of buffer stages (affecting clock latency), the total buffer count (affecting power consumption), and the achieved skew (affecting timing margins). The miniRISC clock tree achieves a skew of only 7.4 picoseconds, indicating excellent clock distribution quality.
+
+%=============================================================================
+\section{Implementation Results}
+%=============================================================================
+
+\subsection{Timing Analysis}
+
+\begin{table}[H]
+\centering
+\caption{Timing Summary}
+\begin{tabular}{@{}llc@{}}
+\toprule
+\textbf{Metric} & \textbf{Value} & \textbf{Status} \\
+\midrule
+Clock Target & 6.50 ns & -- \\
+Achieved Period & 3.90 ns & \textcolor{green}{MET} \\
+Fmax & 256.21 MHz & -- \\
+Setup Slack (WNS) & 2.60 ns & \textcolor{green}{MET} \\
+Hold Slack & 0.42 ns & \textcolor{green}{MET} \\
+TNS (Total Negative Slack) & 0.00 ns & \textcolor{green}{CLEAN} \\
+Setup Violations & 0 & \textcolor{green}{CLEAN} \\
+Hold Violations & 0 & \textcolor{green}{CLEAN} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{Critical Path:} IR[17] $\rightarrow$ GPR[2][11] (3.97 ns data arrival time)
+
+\subsection{Clock Tree Results}
+
+\begin{table}[H]
+\centering
+\caption{Clock Tree Metrics}
+\begin{tabular}{@{}ll@{}}
+\toprule
+\textbf{Metric} & \textbf{Value} \\
+\midrule
+Clock Buffers & 11 \\
+Clock Inverters & 5 \\
+Clock Skew (Setup) & 7.4 ps \\
+Clock Skew (Hold) & 7.4 ps \\
+Source Latency & 0.34 ns \\
+Target Latency & 0.35 ns \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Design Rule Checks}
+
+\begin{table}[H]
+\centering
+\caption{DRC Summary}
+\begin{tabular}{@{}lllc@{}}
+\toprule
+\textbf{Check} & \textbf{Limit} & \textbf{Slack} & \textbf{Violations} \\
+\midrule
+Max Slew & 1.486 ns & 0.583 ns & 0 \\
+Max Capacitance & 36.6 fF & 14.8 fF & 0 \\
+Max Fanout & -- & -- & 0 \\
+Routing DRC & -- & -- & 0 \\
+Antenna & -- & -- & 0 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Power Analysis}
+
+\begin{table}[H]
+\centering
+\caption{Power Breakdown by Category}
+\begin{tabular}{@{}lrrrrr@{}}
+\toprule
+\textbf{Category} & \textbf{Internal} & \textbf{Switching} & \textbf{Leakage} & \textbf{Total} & \textbf{\%} \\
+\midrule
+Sequential & 611 $\mu$W & 12.3 $\mu$W & 0.75 nW & 623 $\mu$W & 47.6\% \\
+Combinational & 56.4 $\mu$W & 122 $\mu$W & 2.57 nW & 178 $\mu$W & 13.6\% \\
+Clock & 298 $\mu$W & 209 $\mu$W & 0.14 nW & 507 $\mu$W & 38.7\% \\
+\midrule
+\textbf{Total} & \textbf{965 $\mu$W} & \textbf{343 $\mu$W} & \textbf{3.46 nW} & \textbf{1.31 mW} & 100\% \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{Power Distribution:} 73.8\% Internal, 26.2\% Switching, $\sim$0\% Leakage
+
+\subsection{IR Drop Analysis}
+
+\begin{table}[H]
+\centering
+\caption{IR Drop Results}
+\begin{tabular}{@{}lllll@{}}
+\toprule
+\textbf{Net} & \textbf{Worst Voltage} & \textbf{Avg Drop} & \textbf{Worst Drop} & \textbf{\% Drop} \\
+\midrule
+VDD & 1.7998 V & 25.6 $\mu$V & 159.6 $\mu$V & 0.01\% \\
+VSS & 123.9 $\mu$V & 19.6 $\mu$V & 123.9 $\mu$V & 0.01\% \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Congestion Analysis}
+
+\begin{table}[H]
+\centering
+\caption{Global Routing Congestion by Layer}
+\begin{tabular}{@{}lrrrr@{}}
+\toprule
+\textbf{Layer} & \textbf{Resource} & \textbf{Demand} & \textbf{Usage (\%)} & \textbf{Overflow} \\
+\midrule
+li1 & 0 & 0 & 0.00\% & 0 \\
+met1 & 2,291 & 1,145 & 49.98\% & 0 \\
+met2 & 2,415 & 1,236 & 51.18\% & 0 \\
+met3 & 1,803 & 169 & 9.37\% & 0 \\
+met4 & 885 & 103 & 11.64\% & 0 \\
+met5 & 240 & 0 & 0.00\% & 0 \\
+\midrule
+\textbf{Total} & \textbf{7,634} & \textbf{2,653} & \textbf{34.75\%} & \textbf{0} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[H]
+\centering
+\caption{Routing Statistics}
+\begin{tabular}{@{}ll@{}}
+\toprule
+\textbf{Metric} & \textbf{Value} \\
+\midrule
+Total Wirelength & 30,546 $\mu$m \\
+Routed Nets & 1,055 \\
+Total Overflow & 0 (no congestion) \\
+Weighted Congestion & 1.025 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Area Utilization}
+
+\begin{table}[H]
+\centering
+\caption{Area Summary}
+\begin{tabular}{@{}ll@{}}
+\toprule
+\textbf{Metric} & \textbf{Value} \\
+\midrule
+Die Area & 12,678.8 $\mu m^2$ \\
+Core Area & 11,961.5 $\mu m^2$ \\
+Core Utilization & 63.96\% \\
+Placement Rows & 40 \\
+Placement Sites & 9,560 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Cell Statistics}
+
+\begin{table}[H]
+\centering
+\caption{Cell Count by Type}
+\begin{tabular}{@{}lrr@{}}
+\toprule
+\textbf{Cell Type} & \textbf{Count} & \textbf{Area ($\mu m^2$)} \\
+\midrule
+Standard Cells & 1,186 & 7,651.1 \\
+Sequential Cells & 89 & 2,422.3 \\
+Combinational Cells & 815 & 4,271.6 \\
+Inverters & 110 & 412.9 \\
+Clock Buffers & 11 & 232.7 \\
+Clock Inverters & 5 & 57.6 \\
+Timing Repair Buffers & 9 & 70.1 \\
+Fill Cells & 1,079 & 4,310.4 \\
+Tap Cells & 147 & 183.9 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+%=============================================================================
+\section{AutoTuner Optimization}
+%=============================================================================
+
+AutoTuner was used to explore the design space using Bayesian optimization (Tree-structured Parzen Estimator).
+
+\subsection{Configuration}
+
+\begin{itemize}
+    \item \textbf{Algorithm:} HyperOpt (TPE)
+    \item \textbf{Samples:} 20
+    \item \textbf{Parallel Jobs:} 2
+    \item \textbf{Objective:} Minimize effective clock period (maximize frequency)
+\end{itemize}
+
+\subsection{Best Parameters Found}
+
+\begin{table}[H]
+\centering
+\caption{AutoTuner Optimized Parameters}
+\begin{tabular}{@{}llll@{}}
+\toprule
+\textbf{Parameter} & \textbf{Default} & \textbf{Optimized} & \textbf{Description} \\
+\midrule
+SDC\_CLK\_PERIOD & 6.50 ns & 5.26 ns & Clock target \\
+CORE\_UTILIZATION & 60\% & 52\% & Core utilization \\
+CORE\_ASPECT\_RATIO & 1.0 & 0.999 & Die aspect ratio \\
+CORE\_MARGIN & 2 & 2 & Core margin \\
+PLACE\_DENSITY\_LB\_ADDON & 0.0 & 0.10 & Placement density \\
+CTS\_CLUSTER\_SIZE & 30 & 22 & CTS cluster size \\
+CTS\_CLUSTER\_DIAMETER & 100 & 69 & CTS cluster diameter \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Results Comparison}
+
+\begin{table}[H]
+\centering
+\caption{Default vs AutoTuner Results}
+\begin{tabular}{@{}llll@{}}
+\toprule
+\textbf{Metric} & \textbf{Default} & \textbf{AutoTuner} & \textbf{Change} \\
+\midrule
+Fmax & 256.21 MHz & 263 MHz & \textbf{+2.7\%} \\
+Clock Period & 3.90 ns & 3.80 ns & \textbf{-2.6\%} \\
+Die Area & 12,679 $\mu m^2$ & 15,081 $\mu m^2$ & +19\% \\
+Core Utilization & 63.96\% & 52\% & -12\% \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{Conclusion:} AutoTuner achieved 2.7\% higher frequency at the cost of 19\% larger die area (speed-optimized mode).
+
+%=============================================================================
+\section{Conclusion}
+%=============================================================================
+
+The miniRISC processor was successfully implemented in SkyWater 130nm technology achieving:
+
+\begin{itemize}
+    \item \textbf{256 MHz} maximum operating frequency
+    \item \textbf{1.31 mW} total power consumption
+    \item \textbf{12,679 $\mu m^2$} die area with 64\% utilization
+    \item \textbf{Zero} DRC, timing, and antenna violations
+    \item \textbf{0.01\%} IR drop (excellent power integrity)
+\end{itemize}
+
+The design is clean and ready for tape-out. AutoTuner optimization demonstrated potential for further frequency improvement with area trade-off.
+
+%=============================================================================
+\section{Appendix: Running the Flow}
+%=============================================================================
+
+\subsection{Prerequisites}
+
+\begin{lstlisting}[language=bash]
+docker pull openroad/orfs:latest
+docker build -t orfs-autotuner - < Dockerfile.autotuner-lite
+\end{lstlisting}
+
+\subsection{Running the Flow}
+
+\begin{lstlisting}[language=bash]
+# Full RTL-to-GDS flow
+./run_flow
+
+# Individual stages
+./run_flow synth
+./run_flow floorplan
+./run_flow place
+./run_flow cts
+./run_flow route
+./run_flow finish
+
+# AutoTuner optimization
+./run_autotuner -s 20 -j 4 -a hyperopt
+\end{lstlisting}
+
+\subsection{Output Files}
+
+\begin{table}[H]
+\centering
+\begin{tabular}{@{}ll@{}}
+\toprule
+\textbf{Output} & \textbf{Path} \\
+\midrule
+GDSII & results/sky130hd/miniRISC/base/6\_final.gds \\
+DEF & results/sky130hd/miniRISC/base/6\_final.def \\
+Netlist & results/sky130hd/miniRISC/base/6\_final.v \\
+Reports & logs/sky130hd/miniRISC/base/6\_report.json \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\end{document}

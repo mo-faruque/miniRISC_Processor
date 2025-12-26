@@ -1,0 +1,31 @@
+# IDE
+.vscode/
+
+# External tools (clone separately)
+OpenROAD-flow-scripts/
+
+# Docker files (build locally)
+Dockerfile.autotuner
+Dockerfile.autotuner-lite
+InstructionsForAutoTuner.md
+flowvariables.md
+FlowVariables.md
+
+# Simulation outputs (in tb/ folder - kept for reference)
+
+# Build artifacts
+*.out
+*.log
+
+# LaTeX auxiliary files
+docs/*.aux
+docs/*.log
+docs/*.out
+docs/*.toc
+docs/*.fls
+docs/*.fdb_latexmk
+docs/*.synctex.gz
+
+# OS files
+.DS_Store
+Thumbs.db
