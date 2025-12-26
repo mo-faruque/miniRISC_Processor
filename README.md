@@ -590,6 +590,14 @@ Sequential elements: 33% of synthesis area
 
 The actual best run is **`abf84b1b`** with optimization score **379.80** (lower is better).
 
+### All AutoTuner Runs
+
+| Run ID | Score | Fmax | Power | Area | Notes |
+|--------|-------|------|-------|------|-------|
+| **abf84b1b** | **379.80** | 263 MHz | 1.62 mW | 15,081 µm² | ✅ Best (Speed) |
+| e6ec3bc7 | 410.83 | 243 MHz | 1.40 mW | 12,188 µm² | Smallest area |
+| 9b9d8498 | 571.98 | 175 MHz | 0.59 mW | 18,675 µm² | Lowest power |
+
 ### Best Parameters Found
 
 | Parameter | Default | AutoTuner | Description |
